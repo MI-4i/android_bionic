@@ -1254,12 +1254,9 @@ static bool walk_dependencies_tree(soinfo* root_soinfos[], size_t root_soinfos_s
       visit_list.push_back(child);
     });
 
-    if (!shim_libs_for_each(si->get_realpath(), [&](soinfo* child) {
-        si->add_child(child);
-        visit_list.push_back(child);
-      })) {
-      return false;
-    }
+    si->get_children().for_each([&](soinfo* child) {
+      visit_list.push_back(child);
+    });
   }
 
   return true;
