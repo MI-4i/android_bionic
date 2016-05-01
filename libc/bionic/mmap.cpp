@@ -27,20 +27,17 @@
  */
 
 #include <errno.h>
+#include <stdint.h>
 #include <sys/mman.h>
 #include <unistd.h>
 
+#include "private/bionic_macros.h"
 #include "private/ErrnoRestorer.h"
 
 // mmap2(2) is like mmap(2), but the offset is in 4096-byte blocks, not bytes.
 extern "C" void*  __mmap2(void*, size_t, int, int, int, size_t);
 
 #define MMAP2_SHIFT 12 // 2**12 == 4096
-#ifdef LEGACY_MMAP
-#define TO_64(a) ((a) & 0x00000000ffffffff)
-#else
-#define TO_64(a) (a)
-#endif
 
 static bool kernel_has_MADV_MERGEABLE = true;
 
@@ -50,10 +47,21 @@ void* mmap64(void* addr, size_t size, int prot, int flags, int fd, off64_t offse
     return MAP_FAILED;
   }
 
-  bool is_private_anonymous = (flags & (MAP_PRIVATE | MAP_ANONYMOUS)) != 0;
+  // prevent allocations large enough for `end - start` to overflow
+  size_t rounded = BIONIC_ALIGN(size, PAGE_SIZE);
+  if (rounded < size || rounded > PTRDIFF_MAX) {
+    errno = ENOMEM;
+    return MAP_FAILED;
+  }
+
+  bool is_private_anonymous =
+      (flags & (MAP_PRIVATE | MAP_ANONYMOUS)) == (MAP_PRIVATE | MAP_ANONYMOUS);
+  bool is_stack_or_grows_down = (flags & (MAP_STACK | MAP_GROWSDOWN)) != 0;
+
   void* result = __mmap2(addr, size, prot, flags, fd, offset >> MMAP2_SHIFT);
 
-  if (result != MAP_FAILED && kernel_has_MADV_MERGEABLE && is_private_anonymous) {
+  if (result != MAP_FAILED && kernel_has_MADV_MERGEABLE &&
+      is_private_anonymous && !is_stack_or_grows_down) {
     ErrnoRestorer errno_restorer;
     int rc = madvise(result, size, MADV_MERGEABLE);
     if (rc == -1 && errno == EINVAL) {
@@ -65,5 +73,5 @@ void* mmap64(void* addr, size_t size, int prot, int flags, int fd, off64_t offse
 }
 
 void* mmap(void* addr, size_t size, int prot, int flags, int fd, off_t offset) {
-  return mmap64(addr, size, prot, flags, fd, TO_64(static_cast<off64_t>(offset)));
+  return mmap64(addr, size, prot, flags, fd, static_cast<off64_t>(offset));
 }

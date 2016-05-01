@@ -71,11 +71,15 @@ glibc = set(map(MangleGlibcNameToBionic, glibc))
 
 # bionic includes various BSD symbols to ease porting other BSD-licensed code.
 bsd_stuff = set([
+  'arc4random',
+  'arc4random_buf',
+  'arc4random_uniform',
   'basename_r',
   'dirname_r',
   'fgetln',
   'fpurge',
   'funopen',
+  'funopen64',
   'gamma_r',
   'gammaf_r',
   'getprogname',
@@ -91,6 +95,11 @@ FORTIFY_stuff = set([
   '__FD_CLR_chk',
   '__FD_ISSET_chk',
   '__FD_SET_chk',
+  '__fwrite_chk',
+  '__memchr_chk',
+  '__memrchr_chk',
+  '__pwrite64_chk',
+  '__pwrite_chk',
   '__stack_chk_guard',
   '__stpncpy_chk2',
   '__strchr_chk',
@@ -100,6 +109,7 @@ FORTIFY_stuff = set([
   '__strncpy_chk2',
   '__strrchr_chk',
   '__umask_chk'
+  '__write_chk',
 ])
 # Some symbols are used to implement public macros.
 macro_stuff = set([
@@ -168,6 +178,23 @@ known = set([
   '_ctype_',
   '__libc_init',
 ])
+# POSIX has some stuff that's too stupid for words (a64l) or not actually
+# implemented in glibc unless you count always failing with ENOSYS as
+# being implemented (fattach).
+in_posix_and_glibc_but_actually_dead = set([
+  'a64l',
+  'fattach',
+  'fdetach',
+  'getmsg',
+  'getpmsg',
+  'isastream',
+  'l64a',
+  'putmsg',
+  'putpmsg',
+])
+
+posix = posix - in_posix_and_glibc_but_actually_dead
+glibc = glibc - in_posix_and_glibc_but_actually_dead
 
 if not only_unwanted:
   #print 'glibc:'

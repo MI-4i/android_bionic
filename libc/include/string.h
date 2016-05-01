@@ -33,6 +33,8 @@
 #include <stddef.h>
 #include <xlocale.h>
 
+#include <bits/strcasecmp.h>
+
 __BEGIN_DECLS
 
 #if defined(__USE_BSD)
@@ -53,6 +55,14 @@ extern void*  memmem(const void *, size_t, const void *, size_t) __purefunc;
 
 extern char*  strchr(const char *, int) __purefunc;
 extern char* __strchr_chk(const char *, int, size_t);
+#if defined(__USE_GNU)
+#if defined(__cplusplus)
+extern "C++" char* strchrnul(char*, int) __RENAME(strchrnul) __purefunc;
+extern "C++" const char* strchrnul(const char*, int) __RENAME(strchrnul) __purefunc;
+#else
+char* strchrnul(const char*, int) __purefunc;
+#endif
+#endif
 
 extern char*  strrchr(const char *, int) __purefunc;
 extern char* __strrchr_chk(const char *, int, size_t);
@@ -63,11 +73,6 @@ extern int    strcmp(const char *, const char *) __purefunc;
 extern char*  stpcpy(char* __restrict, const char* __restrict);
 extern char*  strcpy(char* __restrict, const char* __restrict);
 extern char*  strcat(char* __restrict, const char* __restrict);
-
-int strcasecmp(const char*, const char*) __purefunc;
-int strcasecmp_l(const char*, const char*, locale_t) __purefunc;
-int strncasecmp(const char*, const char*, size_t) __purefunc;
-int strncasecmp_l(const char*, const char*, size_t, locale_t) __purefunc;
 
 extern char*  strdup(const char *);
 

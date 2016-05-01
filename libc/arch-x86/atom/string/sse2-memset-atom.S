@@ -28,6 +28,8 @@ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+#include <private/bionic_asm.h>
+
 #include "cache.h"
 
 #ifndef L
@@ -36,14 +38,6 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #ifndef ALIGN
 # define ALIGN(n)	.p2align n
-#endif
-
-#ifndef cfi_startproc
-# define cfi_startproc			.cfi_startproc
-#endif
-
-#ifndef cfi_endproc
-# define cfi_endproc			.cfi_endproc
 #endif
 
 #ifndef cfi_rel_offset
@@ -58,21 +52,6 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 # define cfi_adjust_cfa_offset(off)	.cfi_adjust_cfa_offset off
 #endif
 
-#ifndef ENTRY
-# define ENTRY(name)			\
-	.type name,  @function; 	\
-	.globl name;			\
-	.p2align 4;			\
-name:					\
-	cfi_startproc
-#endif
-
-#ifndef END
-# define END(name)			\
-	cfi_endproc;			\
-	.size name, .-name
-#endif
-
 #define CFI_PUSH(REG)						\
   cfi_adjust_cfa_offset (4);					\
   cfi_rel_offset (REG, 0)
@@ -84,16 +63,11 @@ name:					\
 #define PUSH(REG)	pushl REG; CFI_PUSH (REG)
 #define POP(REG)	popl REG; CFI_POP (REG)
 
-#ifdef USE_AS_BZERO
-# define DEST		PARMS
-# define LEN		DEST+4
-# define SETRTNVAL
-#else
-# define DEST		PARMS
-# define CHR		DEST+4
-# define LEN		CHR+4
-# define SETRTNVAL	movl DEST(%esp), %eax
-#endif
+#define DST		PARMS
+#define CHR		DST+4
+#define LEN		CHR+4
+#define CHK_DST_LEN (LEN+4)
+#define SETRTNVAL	movl DST(%esp), %eax
 
 #if (defined SHARED || defined __PIC__)
 # define ENTRANCE	PUSH (%ebx);
@@ -138,27 +112,29 @@ __x86.get_pc_thunk.bx:
     jmp		*TABLE(,%ecx,4)
 #endif
 
-#ifndef MEMSET
-# define MEMSET memset
-#endif
+ENTRY(__memset_chk)
+  ENTRANCE
+
+  movl LEN(%esp), %ecx
+  cmpl CHK_DST_LEN(%esp), %ecx
+  ja __memset_chk_fail
+  jmp L(memset_length_loaded)
+END(__memset_chk)
 
 	.section .text.sse2,"ax",@progbits
 	ALIGN (4)
-ENTRY (MEMSET)
+ENTRY (memset)
 	ENTRANCE
 
 	movl	LEN(%esp), %ecx
-#ifdef USE_AS_BZERO
-	xor	%eax, %eax
-#else
+L(memset_length_loaded):
 	movzbl	CHR(%esp), %eax
 	movb	%al, %ah
 	/* Fill the whole EAX with pattern.  */
 	movl	%eax, %edx
 	shl	$16, %eax
 	or	%edx, %eax
-#endif
-	movl	DEST(%esp), %edx
+	movl	DST(%esp), %edx
 	cmp	$32, %ecx
 	jae	L(32bytesormore)
 
@@ -287,12 +263,8 @@ L(write_3bytes):
 /* ECX > 32 and EDX is 4 byte aligned.  */
 L(32bytesormore):
 	/* Fill xmm0 with the pattern.  */
-#ifdef USE_AS_BZERO
-	pxor	%xmm0, %xmm0
-#else
 	movd	%eax, %xmm0
 	pshufd	$0, %xmm0, %xmm0
-#endif
 	testl	$0xf, %edx
 	jz	L(aligned_16)
 /* ECX > 32 and EDX is not 16 byte aligned.  */
@@ -917,4 +889,4 @@ L(aligned_16_15bytes):
 	SETRTNVAL
 	RETURN_END
 
-END (MEMSET)
+END (memset)

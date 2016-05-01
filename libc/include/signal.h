@@ -30,9 +30,9 @@
 #define _SIGNAL_H_
 
 #include <asm/sigcontext.h>
+#include <bits/pthread_types.h>
+#include <bits/timespec.h>
 #include <limits.h>
-#include <machine/pthread_types.h>
-#include <machine/timespec.h>
 #include <sys/cdefs.h>
 #include <sys/types.h>
 
@@ -63,6 +63,11 @@ typedef int sig_atomic_t;
 /* Userspace's NSIG is the kernel's _NSIG + 1. */
 #define _NSIG (_KERNEL__NSIG + 1)
 #define NSIG _NSIG
+
+/* The kernel headers define SIG_DFL (0) and SIG_IGN (1) but not SIG_HOLD, since
+ * SIG_HOLD is only used by the deprecated SysV signal API.
+ */
+#define SIG_HOLD ((sighandler_t)(uintptr_t)2)
 
 /* We take a few real-time signals for ourselves. May as well use the same names as glibc. */
 #define SIGRTMIN (__libc_current_sigrtmin())
@@ -105,20 +110,26 @@ struct sigaction {
 
 extern int sigaction(int, const struct sigaction*, struct sigaction*);
 
-_BIONIC_NOT_BEFORE_21(extern sighandler_t signal(int, sighandler_t);)
+extern sighandler_t signal(int, sighandler_t) __INTRODUCED_IN(21);
 
 extern int siginterrupt(int, int);
 
-_BIONIC_NOT_BEFORE_21(extern int sigaddset(sigset_t*, int);)
-_BIONIC_NOT_BEFORE_21(extern int sigdelset(sigset_t*, int);)
-_BIONIC_NOT_BEFORE_21(extern int sigemptyset(sigset_t*);)
-_BIONIC_NOT_BEFORE_21(extern int sigfillset(sigset_t*);)
-_BIONIC_NOT_BEFORE_21(extern int sigismember(const sigset_t*, int);)
+extern int sigaddset(sigset_t*, int) __INTRODUCED_IN(21);
+extern int sigdelset(sigset_t*, int) __INTRODUCED_IN(21);
+extern int sigemptyset(sigset_t*) __INTRODUCED_IN(21);
+extern int sigfillset(sigset_t*) __INTRODUCED_IN(21);
+extern int sigismember(const sigset_t*, int) __INTRODUCED_IN(21);
 
 extern int sigpending(sigset_t*) __nonnull((1));
 extern int sigprocmask(int, const sigset_t*, sigset_t*);
 extern int sigsuspend(const sigset_t*) __nonnull((1));
 extern int sigwait(const sigset_t*, int*) __nonnull((1, 2));
+
+extern int sighold(int) __attribute__((deprecated("use sigprocmask() or pthread_sigmask() instead")));
+extern int sigignore(int) __attribute__((deprecated("use sigaction() instead")));
+extern int sigpause(int) __attribute__((deprecated("use sigsuspend() instead")));
+extern int sigrelse(int) __attribute__((deprecated("use sigprocmask() or pthread_sigmask() instead")));
+extern sighandler_t sigset(int, sighandler_t) __attribute__((deprecated("use sigaction() instead")));
 
 extern int raise(int);
 extern int kill(pid_t, int);

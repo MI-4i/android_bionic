@@ -59,19 +59,16 @@ extern void* mmap64(void*, size_t, int, int, int, off64_t);
 extern int munmap(void*, size_t);
 extern int msync(const void*, size_t, int);
 extern int mprotect(const void*, size_t, int);
-extern void* mremap(void*, size_t, size_t, unsigned long);
+extern void* mremap(void*, size_t, size_t, int, ...);
 
 extern int mlockall(int);
 extern int munlockall(void);
 extern int mlock(const void*, size_t);
 extern int munlock(const void*, size_t);
-extern int madvise(void*, size_t, int);
-
-extern int mlock(const void*, size_t);
-extern int munlock(const void*, size_t);
 
 extern int mincore(void*, size_t, unsigned char*);
 
+extern int madvise(void*, size_t, int);
 extern int posix_madvise(void*, size_t, int);
 
 __END_DECLS

@@ -31,6 +31,7 @@
 
 #include <android/set_abort_message.h>
 #include <assert.h>
+#include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <pthread.h>
@@ -45,6 +46,9 @@
 #include <sys/un.h>
 #include <time.h>
 #include <unistd.h>
+
+#define _REALLY_INCLUDE_SYS__SYSTEM_PROPERTIES_H_
+#include <sys/_system_properties.h>
 
 static pthread_mutex_t g_abort_msg_lock = PTHREAD_MUTEX_INITIALIZER;
 
@@ -448,7 +452,6 @@ static int __libc_write_stderr(const char* tag, const char* msg) {
   return result;
 }
 
-#ifdef TARGET_USES_LOGD
 static int __libc_open_log_socket() {
   // ToDo: Ideally we want this to fail if the gid of the current
   // process is AID_LOGD, but will have to wait until we have
@@ -456,13 +459,8 @@ static int __libc_open_log_socket() {
   // found that all logd crashes thus far have had no problem stuffing
   // the UNIX domain socket and moving on so not critical *today*.
 
-  int log_fd = TEMP_FAILURE_RETRY(socket(PF_UNIX, SOCK_DGRAM | SOCK_CLOEXEC, 0));
-  if (log_fd < 0) {
-    return -1;
-  }
-
-  if (fcntl(log_fd, F_SETFL, O_NONBLOCK) == -1) {
-    close(log_fd);
+  int log_fd = TEMP_FAILURE_RETRY(socket(PF_UNIX, SOCK_DGRAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0));
+  if (log_fd == -1) {
     return -1;
   }
 
@@ -482,14 +480,70 @@ static int __libc_open_log_socket() {
   return log_fd;
 }
 
+struct cache {
+  const prop_info* pinfo;
+  uint32_t serial;
+  char c;
+};
+
+static void refresh_cache(struct cache *cache, const char *key)
+{
+  if (!cache->pinfo) {
+    cache->pinfo = __system_property_find(key);
+    if (!cache->pinfo) {
+      return;
+    }
+  }
+  uint32_t serial = __system_property_serial(cache->pinfo);
+  if (serial == cache->serial) {
+    return;
+  }
+  cache->serial = serial;
+
+  char buf[PROP_VALUE_MAX];
+  __system_property_read(cache->pinfo, 0, buf);
+  cache->c = buf[0];
+}
+
+// Timestamp state generally remains constant, since a change is
+// rare, we can accept a trylock failure gracefully.
+static pthread_mutex_t lock_clockid = PTHREAD_MUTEX_INITIALIZER;
+
+static clockid_t __android_log_clockid()
+{
+  static struct cache r_time_cache = { NULL, static_cast<uint32_t>(-1), 0 };
+  static struct cache p_time_cache = { NULL, static_cast<uint32_t>(-1), 0 };
+  char c;
+
+  if (pthread_mutex_trylock(&lock_clockid)) {
+    // We are willing to accept some race in this context
+    if (!(c = p_time_cache.c)) {
+      c = r_time_cache.c;
+    }
+  } else {
+    static uint32_t serial;
+    uint32_t current_serial = __system_property_area_serial();
+    if (current_serial != serial) {
+      refresh_cache(&r_time_cache, "ro.logd.timestamp");
+      refresh_cache(&p_time_cache, "persist.logd.timestamp");
+      serial = current_serial;
+    }
+    if (!(c = p_time_cache.c)) {
+      c = r_time_cache.c;
+    }
+
+    pthread_mutex_unlock(&lock_clockid);
+  }
+
+  return (tolower(c) == 'm') ? CLOCK_MONOTONIC : CLOCK_REALTIME;
+}
+
 struct log_time { // Wire format
   uint32_t tv_sec;
   uint32_t tv_nsec;
 };
-#endif
 
-static int __libc_write_log(int priority, const char* tag, const char* msg) {
-#ifdef TARGET_USES_LOGD
+int __libc_write_log(int priority, const char* tag, const char* msg) {
   int main_log_fd = __libc_open_log_socket();
   if (main_log_fd == -1) {
     // Try stderr instead.
@@ -504,7 +558,7 @@ static int __libc_write_log(int priority, const char* tag, const char* msg) {
   vec[1].iov_base = &tid;
   vec[1].iov_len = sizeof(tid);
   timespec ts;
-  clock_gettime(CLOCK_REALTIME, &ts);
+  clock_gettime(__android_log_clockid(), &ts);
   log_time realtime_ts;
   realtime_ts.tv_sec = ts.tv_sec;
   realtime_ts.tv_nsec = ts.tv_nsec;
@@ -517,24 +571,6 @@ static int __libc_write_log(int priority, const char* tag, const char* msg) {
   vec[4].iov_len = strlen(tag) + 1;
   vec[5].iov_base = const_cast<char*>(msg);
   vec[5].iov_len = strlen(msg) + 1;
-#else
-  int main_log_fd = TEMP_FAILURE_RETRY(open("/dev/log/main", O_CLOEXEC | O_WRONLY));
-  if (main_log_fd == -1) {
-    if (errno == ENOTDIR) {
-      // /dev/log isn't a directory? Maybe we're running on the host? Try stderr instead.
-      return __libc_write_stderr(tag, msg);
-    }
-    return -1;
-  }
-
-  iovec vec[3];
-  vec[0].iov_base = &priority;
-  vec[0].iov_len = 1;
-  vec[1].iov_base = const_cast<char*>(tag);
-  vec[1].iov_len = strlen(tag) + 1;
-  vec[2].iov_base = const_cast<char*>(msg);
-  vec[2].iov_len = strlen(msg) + 1;
-#endif
 
   int result = TEMP_FAILURE_RETRY(writev(main_log_fd, vec, sizeof(vec) / sizeof(vec[0])));
   close(main_log_fd);
@@ -556,69 +592,15 @@ int __libc_format_log(int priority, const char* tag, const char* format, ...) {
   return result;
 }
 
-static int __libc_android_log_event(int32_t tag, char type, const void* payload, size_t len) {
-#ifdef TARGET_USES_LOGD
-  iovec vec[6];
-  char log_id = LOG_ID_EVENTS;
-  vec[0].iov_base = &log_id;
-  vec[0].iov_len = sizeof(log_id);
-  uint16_t tid = gettid();
-  vec[1].iov_base = &tid;
-  vec[1].iov_len = sizeof(tid);
-  timespec ts;
-  clock_gettime(CLOCK_REALTIME, &ts);
-  log_time realtime_ts;
-  realtime_ts.tv_sec = ts.tv_sec;
-  realtime_ts.tv_nsec = ts.tv_nsec;
-  vec[2].iov_base = &realtime_ts;
-  vec[2].iov_len = sizeof(realtime_ts);
-
-  vec[3].iov_base = &tag;
-  vec[3].iov_len = sizeof(tag);
-  vec[4].iov_base = &type;
-  vec[4].iov_len = sizeof(type);
-  vec[5].iov_base = const_cast<void*>(payload);
-  vec[5].iov_len = len;
-
-  int event_log_fd = __libc_open_log_socket();
-#else
-  iovec vec[3];
-  vec[0].iov_base = &tag;
-  vec[0].iov_len = sizeof(tag);
-  vec[1].iov_base = &type;
-  vec[1].iov_len = sizeof(type);
-  vec[2].iov_base = const_cast<void*>(payload);
-  vec[2].iov_len = len;
-
-  int event_log_fd = TEMP_FAILURE_RETRY(open("/dev/log/events", O_CLOEXEC | O_WRONLY));
-#endif
-
-  if (event_log_fd == -1) {
-    return -1;
-  }
-  int result = TEMP_FAILURE_RETRY(writev(event_log_fd, vec, sizeof(vec) / sizeof(vec[0])));
-  close(event_log_fd);
-  return result;
-}
-
-void __libc_android_log_event_int(int32_t tag, int value) {
-  __libc_android_log_event(tag, EVENT_TYPE_INT, &value, sizeof(value));
-}
-
-void __libc_android_log_event_uid(int32_t tag) {
-  __libc_android_log_event_int(tag, getuid());
-}
-
-void __fortify_chk_fail(const char* msg, uint32_t tag) {
-  if (tag != 0) {
-    __libc_android_log_event_uid(tag);
-  }
-  __libc_fatal("FORTIFY: %s", msg);
-}
-
-static void __libc_fatal(const char* format, va_list args) {
+static void __libc_fatal_va_list(const char* prefix, const char* format, va_list args) {
   char msg[1024];
   BufferOutputStream os(msg, sizeof(msg));
+
+  if (prefix) {
+    os.Send(prefix, strlen(prefix));
+    os.Send(": ", 2);
+  }
+
   out_vformat(os, format, args);
 
   // Log to stderr for the benefit of "adb shell" users.
@@ -634,17 +616,18 @@ static void __libc_fatal(const char* format, va_list args) {
   android_set_abort_message(msg);
 }
 
-void __libc_fatal_no_abort(const char* format, ...) {
+void __libc_fatal(const char* fmt, ...) {
   va_list args;
-  va_start(args, format);
-  __libc_fatal(format, args);
+  va_start(args, fmt);
+  __libc_fatal_va_list(nullptr, fmt, args);
   va_end(args);
+  abort();
 }
 
-void __libc_fatal(const char* format, ...) {
+void __fortify_fatal(const char* fmt, ...) {
   va_list args;
-  va_start(args, format);
-  __libc_fatal(format, args);
+  va_start(args, fmt);
+  __libc_fatal_va_list("FORTIFY", fmt, args);
   va_end(args);
   abort();
 }

@@ -29,8 +29,8 @@
 #ifndef _SYS_STAT_H_
 #define _SYS_STAT_H_
 
+#include <bits/timespec.h>
 #include <linux/stat.h>
-#include <machine/timespec.h>
 #include <sys/cdefs.h>
 #include <sys/types.h>
 
@@ -135,6 +135,12 @@ struct stat64 { __STAT64_BODY };
 #define DEFFILEMODE (S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH) /* 0666 */
 #endif
 
+#if defined(__USE_BSD) || defined(__USE_GNU)
+#define S_IREAD S_IRUSR
+#define S_IWRITE S_IWUSR
+#define S_IEXEC S_IXUSR
+#endif
+
 extern int chmod(const char*, mode_t);
 extern int fchmod(int, mode_t);
 extern int mkdir(const char*, mode_t);
@@ -171,7 +177,7 @@ mode_t umask(mode_t mode) {
 }
 #endif /* defined(__BIONIC_FORTIFY) */
 
-_BIONIC_NOT_BEFORE_21(extern int mkfifo(const char*, mode_t);)
+extern int mkfifo(const char*, mode_t) __INTRODUCED_IN(21);
 extern int mkfifoat(int, const char*, mode_t);
 
 extern int fchmodat(int, const char*, mode_t, int);

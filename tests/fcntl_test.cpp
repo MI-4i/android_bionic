@@ -237,3 +237,26 @@ TEST(fcntl, tee) {
   ASSERT_STREQ(expected, buf1);
   ASSERT_STREQ(expected, buf2);
 }
+
+TEST(fcntl, readahead) {
+  // Just check that the function is available.
+  errno = 0;
+  ASSERT_EQ(-1, readahead(-1, 0, 123));
+  ASSERT_EQ(EBADF, errno);
+}
+
+TEST(fcntl, sync_file_range) {
+  // Just check that the function is available.
+  errno = 0;
+  ASSERT_EQ(-1, sync_file_range(-1, 0, 0, 0));
+  ASSERT_EQ(EBADF, errno);
+
+  TemporaryFile tf;
+  ASSERT_EQ(0, sync_file_range(tf.fd, 0, 0, 0));
+
+  // The arguments to the underlying system call are in a different order on 32-bit ARM.
+  // Check that the `flags` argument gets passed to the kernel correctly.
+  errno = 0;
+  ASSERT_EQ(-1, sync_file_range(tf.fd, 0, 0, ~0));
+  ASSERT_EQ(EINVAL, errno);
+}

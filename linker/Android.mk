@@ -1,17 +1,34 @@
 LOCAL_PATH := $(call my-dir)
 
 include $(CLEAR_VARS)
+LOCAL_CLANG := true
 
-LOCAL_SRC_FILES:= \
+LOCAL_MODULE := liblinker_malloc
+
+LOCAL_SRC_FILES := \
+    linker_allocator.cpp \
+    linker_memory.cpp
+
+# We need to access Bionic private headers in the linker.
+LOCAL_CFLAGS += -I$(LOCAL_PATH)/../libc/
+
+include $(BUILD_STATIC_LIBRARY)
+
+include $(CLEAR_VARS)
+
+LOCAL_CLANG := true
+
+LOCAL_SRC_FILES := \
     debugger.cpp \
     dlfcn.cpp \
     linker.cpp \
-    linker_allocator.cpp \
-    linker_sdk_versions.cpp \
     linker_block_allocator.cpp \
+    linker_gdb_support.cpp \
     linker_libc_support.c \
-    linker_memory.cpp \
+    linker_mapped_file_fragment.cpp \
     linker_phdr.cpp \
+    linker_sdk_versions.cpp \
+    linker_utils.cpp \
     rt.cpp \
 
 LOCAL_SRC_FILES_arm     := arch/arm/begin.S
@@ -35,14 +52,13 @@ LOCAL_CFLAGS += \
     -fvisibility=hidden \
     -Wall -Wextra -Wunused -Werror \
 
-LOCAL_CFLAGS_arm += -D__work_around_b_19059885__
-LOCAL_CFLAGS_x86 += -D__work_around_b_19059885__
+LOCAL_CFLAGS_arm += -D__work_around_b_24465209__
+LOCAL_CFLAGS_x86 += -D__work_around_b_24465209__
 
 LOCAL_CONLYFLAGS += \
     -std=gnu99 \
 
 LOCAL_CPPFLAGS += \
-    -std=gnu++11 \
     -Wold-style-cast \
 
 ifeq ($(TARGET_IS_64_BIT),true)
@@ -60,7 +76,11 @@ LOCAL_ASFLAGS := $(LOCAL_CFLAGS)
 
 LOCAL_ADDITIONAL_DEPENDENCIES := $(LOCAL_PATH)/Android.mk
 
-LOCAL_STATIC_LIBRARIES := libc_nomalloc libziparchive libutils libz liblog
+LOCAL_STATIC_LIBRARIES := libc_nomalloc libziparchive libutils libbase libz liblog
+
+# Important: The liblinker_malloc should be the last library in the list
+# to overwrite any other malloc implementations by other static libraries.
+LOCAL_STATIC_LIBRARIES += liblinker_malloc
 
 LOCAL_FORCE_STATIC_EXECUTABLE := true
 
@@ -82,5 +102,21 @@ LOCAL_POST_LINK_CMD = $(hide) $($(LOCAL_2ND_ARCH_VAR_PREFIX)TARGET_OBJCOPY) \
   --prefix-symbols=__dl_ $(linked_module)
 
 include $(BUILD_EXECUTABLE)
+
+
+define add-linker-symlink
+$(eval _from := $(TARGET_OUT)/bin/$(1))
+$(eval _to:=$(2))
+$(_from): $(LOCAL_MODULE_MAKEFILE)
+	@echo "Symlink: $$@ -> $(_to)"
+	@mkdir -p $$(dir $$@)
+	@rm -rf $$@
+	$(hide) ln -sf $(_to) $$@
+endef
+
+$(eval $(call add-linker-symlink,linker_asan,linker))
+ifeq ($(TARGET_IS_64_BIT),true)
+$(eval $(call add-linker-symlink,linker_asan64,linker64))
+endif
 
 include $(call first-makefiles-under,$(LOCAL_PATH))

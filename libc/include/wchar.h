@@ -36,7 +36,7 @@
 #include <time.h>
 #include <xlocale.h>
 
-#include <machine/wchar_limits.h>
+#include <bits/wchar_limits.h>
 
 __BEGIN_DECLS
 
@@ -97,7 +97,6 @@ extern size_t            mbrlen(const char *, size_t, mbstate_t *);
 extern size_t            mbrtowc(wchar_t *, const char *, size_t, mbstate_t *);
 extern size_t mbsrtowcs(wchar_t*, const char**, size_t, mbstate_t*);
 extern size_t mbsnrtowcs(wchar_t*, const char**, size_t, size_t, mbstate_t*);
-extern size_t            mbstowcs(wchar_t *, const char *, size_t);
 extern wint_t            putwc(wchar_t, FILE *);
 extern wint_t            putwchar(wchar_t);
 extern int               swprintf(wchar_t *, size_t, const wchar_t *, ...);

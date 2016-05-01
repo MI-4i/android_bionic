@@ -15,8 +15,10 @@
  */
 
 #include <gtest/gtest.h>
+
 #include "BionicDeathTest.h"
 #include "TemporaryFile.h"
+#include "utils.h"
 
 #include <errno.h>
 #include <libgen.h>
@@ -323,10 +325,7 @@ TEST(stdlib, quick_exit) {
     quick_exit(99);
   }
 
-  int status;
-  ASSERT_EQ(pid, waitpid(pid, &status, 0));
-  ASSERT_TRUE(WIFEXITED(status));
-  ASSERT_EQ(99, WEXITSTATUS(status));
+  AssertChildExited(pid, 99);
 }
 
 static int quick_exit_status = 0;
@@ -355,24 +354,18 @@ TEST(stdlib, at_quick_exit) {
     quick_exit(99);
   }
 
-  int status;
-  ASSERT_EQ(pid, waitpid(pid, &status, 0));
-  ASSERT_TRUE(WIFEXITED(status));
-  ASSERT_EQ(99, WEXITSTATUS(status));
+  AssertChildExited(pid, 99);
 }
 
 TEST(unistd, _Exit) {
-  int pid = fork();
+  pid_t pid = fork();
   ASSERT_NE(-1, pid) << strerror(errno);
 
   if (pid == 0) {
     _Exit(99);
   }
 
-  int status;
-  ASSERT_EQ(pid, waitpid(pid, &status, 0));
-  ASSERT_TRUE(WIFEXITED(status));
-  ASSERT_EQ(99, WEXITSTATUS(status));
+  AssertChildExited(pid, 99);
 }
 
 TEST(stdlib, pty_smoke) {
@@ -520,4 +513,27 @@ TEST(stdlib, strtoull_EINVAL) {
   errno = 0;
   strtoull("123", NULL, 37);
   ASSERT_EQ(EINVAL, errno);
+}
+
+TEST(stdlib, getsubopt) {
+  char* const tokens[] = {
+    const_cast<char*>("a"),
+    const_cast<char*>("b"),
+    const_cast<char*>("foo"),
+    nullptr
+  };
+  std::string input = "a,b,foo=bar,a,unknown";
+  char* subopts = &input[0];
+  char* value = nullptr;
+
+  ASSERT_EQ(0, getsubopt(&subopts, tokens, &value));
+  ASSERT_EQ(nullptr, value);
+  ASSERT_EQ(1, getsubopt(&subopts, tokens, &value));
+  ASSERT_EQ(nullptr, value);
+  ASSERT_EQ(2, getsubopt(&subopts, tokens, &value));
+  ASSERT_STREQ("bar", value);
+  ASSERT_EQ(0, getsubopt(&subopts, tokens, &value));
+  ASSERT_EQ(nullptr, value);
+
+  ASSERT_EQ(-1, getsubopt(&subopts, tokens, &value));
 }

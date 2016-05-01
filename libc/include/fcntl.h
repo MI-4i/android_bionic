@@ -36,6 +36,12 @@
 #include <linux/stat.h>
 #include <linux/uio.h>
 
+#include <bits/fcntl.h>
+
+#if defined(__USE_GNU) || defined(__USE_BSD)
+#include <bits/lockf.h>
+#endif
+
 __BEGIN_DECLS
 
 #ifdef __LP64__
@@ -59,14 +65,12 @@ __BEGIN_DECLS
 
 extern int creat(const char*, mode_t);
 extern int creat64(const char*, mode_t);
-extern int fcntl(int, int, ...);
 extern int openat(int, const char*, int, ...);
 extern int openat64(int, const char*, int, ...);
 extern int open(const char*, int, ...);
 extern int open64(const char*, int, ...);
 extern ssize_t splice(int, off64_t*, int, off64_t*, size_t, unsigned int);
 extern ssize_t tee(int, int, size_t, unsigned int);
-extern int unlinkat(int, const char*, int);
 extern ssize_t vmsplice(int, const struct iovec*, size_t, unsigned int);
 
 #if defined(__USE_FILE_OFFSET64)
@@ -81,6 +85,11 @@ extern int posix_fallocate(int, off_t, off_t);
 extern int fallocate64(int, int, off64_t, off64_t);
 extern int posix_fadvise64(int, off64_t, off64_t, int);
 extern int posix_fallocate64(int, off64_t, off64_t);
+
+#if defined(__USE_GNU)
+ssize_t readahead(int, off64_t, size_t);
+int sync_file_range(int, off64_t, off64_t, unsigned int);
+#endif
 
 extern int __open_2(const char*, int);
 extern int __open_real(const char*, int, ...) __RENAME(open);
